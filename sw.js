@@ -1,5 +1,5 @@
 // Сервис-воркер: приложение открывается и без интернета (данные — только онлайн)
-const CACHE = 'marilu-v1';
+const CACHE = 'marilu-v2';
 const SHELL = ['./', './index.html', './app.js', './config.js', './styles.css', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
