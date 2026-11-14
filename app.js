@@ -1,5 +1,5 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=3';
+import { SUPABASE_URL, SUPABASE_KEY, VAPID_PUBLIC_KEY } from './config.js?v=4';
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true, autoRefreshToken: true } });
 
@@ -486,7 +486,9 @@ document.addEventListener('click', async e => {
   const es = t.closest('[data-editstudio]'); if (es) { editStudioForm(es.dataset.editstudio); return; }
   const actEl = t.closest('[data-act]'); const act = actEl?.dataset.act;
   if (act) {
-    if (act === 'logout') { lsSet('studio', ''); closeChannel(); await sb.auth.signOut(); return; }
+    if (act === 'logout') { lsSet('studio', ''); closeChannel(); await unlinkPush(); await sb.auth.signOut(); return; }
+    if (act === 'pushOn') { try { await enablePush(); } catch (e) { toast('Не удалось включить: ' + errText(e)); } return; }
+    if (act === 'pushOff') { await disablePush(); return; }
     if (act === 'reload') { loadAccount(); return; }
     if (act === 'admin') { lsSet('studio', ''); closeChannel(); A.view = 'admin'; adminRows = null; UI.q = ''; render(); return; }
     if (act === 'pick') { lsSet('studio', ''); closeChannel(); A.view = A.memberships.length ? 'pick' : 'admin'; render(); return; }
@@ -647,6 +649,59 @@ function vNotif() {
   }).join('')}</div>`;
 }
 
+
+/* ================= ПУШ-УВЕДОМЛЕНИЯ ================= */
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+function b64u(s) { const p = '='.repeat((4 - s.length % 4) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, c => c.charCodeAt(0)); }
+async function pushState() {
+  if (!pushSupported()) return isIOS() && !isStandalone() ? 'ios-browser' : 'unsupported';
+  if (Notification.permission === 'denied') return 'denied';
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg && await reg.pushManager.getSubscription();
+  return sub ? 'on' : 'off';
+}
+async function enablePush() {
+  if (isIOS() && !isStandalone()) { toast('Сначала добавьте приложение на экран «Домой» и откройте его оттуда'); return; }
+  if (!pushSupported()) { toast('Этот браузер не поддерживает уведомления'); return; }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { toast('Уведомления запрещены. Разрешите их в настройках телефона'); render(); return; }
+  const reg = await navigator.serviceWorker.register('sw.js');
+  await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(VAPID_PUBLIC_KEY) });
+  const j = sub.toJSON();
+  await run(sb.rpc('save_push_sub', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_ua: navigator.userAgent.slice(0, 200) }));
+  lsSet('push-asked', '1'); toast('Уведомления включены'); render();
+}
+async function disablePush() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg && await reg.pushManager.getSubscription();
+  if (sub) { await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); }
+  toast('Уведомления выключены'); render();
+}
+// при выходе отвязать устройство от аккаунта
+async function unlinkPush() {
+  try { const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && await reg.pushManager.getSubscription(); if (sub) { await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); } } catch (e) { }
+}
+function pushCard(id) {
+  setTimeout(async () => {
+    const el = $(id); if (!el) return;
+    const st = await pushState();
+    const txt = {
+      on: ['🔔 Уведомления включены', 'Вы получаете пуши о новых, перенесённых и отменённых записях.', '<button class="btn sm" data-act="pushOff">Выключить</button>'],
+      off: ['🔔 Уведомления о записях', 'Получайте пуш, когда к вам записали клиента, перенесли или отменили запись.', '<button class="btn pri sm" data-act="pushOn">Включить уведомления</button>'],
+      denied: ['🔕 Уведомления запрещены', 'Разрешите уведомления для MariluStudio в настройках телефона/браузера, затем обновите страницу.', ''],
+      'ios-browser': ['🔔 Уведомления на iPhone', 'Добавьте приложение на экран «Домой»: «Поделиться» → «На экран „Домой“», откройте его с иконки и включите уведомления здесь.', ''],
+      unsupported: ['🔕 Уведомления недоступны', 'Этот браузер не поддерживает пуш-уведомления. Попробуйте Chrome, Edge или Safari.', ''],
+    }[st];
+    el.innerHTML = `<b>${txt[0]}</b><div class="muted" style="font-size:13px;margin:4px 0 8px">${txt[1]}</div>${txt[2]}`;
+  });
+  return `<div class="card" id="${id}" style="margin-bottom:12px"><b>🔔 Уведомления</b><div class="muted" style="font-size:13px">Проверяю…</div></div>`;
+}
+navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'refresh' && A.view === 'studio') { loadWeek(true).then(render).catch(() => { }); } });
+
 /* ================= ЕЩЁ ================= */
 function vMore() {
   const it = [];
@@ -658,7 +713,7 @@ function vMore() {
   }
   it.push(['profile', 'Профиль', esc(A.user.email)]);
   const sub = subBadge(A.studio);
-  return `<div class="card" style="margin-bottom:12px"><b>${esc(A.studio.name)}</b><div class="muted" style="font-size:13px;margin-top:4px">Ваша роль: ${A.me ? ROLES[A.me.role] : 'Администратор MariluStudio'} · ${sub}</div></div>
+  return pushCard('pushMore') + `<div class="card" style="margin-bottom:12px"><b>${esc(A.studio.name)}</b><div class="muted" style="font-size:13px;margin-top:4px">Ваша роль: ${A.me ? ROLES[A.me.role] : 'Администратор MariluStudio'} · ${sub}</div></div>
     <div class="list">${it.map(([k, t, s]) => `<div class="li" data-act="go" data-v="${k}"><div class="main"><b>${t}</b><small>${s}</small></div><span class="muted">›</span></div>`).join('')}</div>
     <div class="actions" style="margin-top:14px">${isSuper() ? '<button class="btn" data-act="admin">Админ-панель</button>' : ''}${A.memberships.length > 1 ? '<button class="btn" data-act="pick">Сменить студию</button>' : ''}<span class="sp"></span><button class="btn danger" data-act="logout">Выйти</button></div>`;
 }
@@ -674,7 +729,7 @@ function vProfile() {
       toast('Сохранено');
     };
   });
-  return backBtn() + `<div class="card">
+  return backBtn() + pushCard('pushProf') + `<div class="card">
     <div class="f"><label>Email</label><input value="${esc(A.user.email)}" disabled></div>
     <div class="f"><label>Ваше имя</label><input id="prN" value="${esc(A.profile.full_name || '')}"></div>
     <div class="f"><label>Новый пароль (если хотите сменить)</label><input id="prP" type="password" minlength="6" autocomplete="new-password"></div>
