@@ -15,7 +15,7 @@ CRM для студий красоты: онлайн-журнал записей
 | Мастер | Только свои записи и график |
 
 ## Запуск
-1. Supabase → SQL Editor → вставить `supabase/schema.sql` → Run (один раз).
+1. Supabase → SQL Editor → по очереди выполнить `supabase/schema.sql`, `supabase/push.sql`, `supabase/002_superadmin_roles.sql` (один раз).
 2. Supabase → Authentication → URL Configuration → Site URL: адрес сайта на GitHub Pages.
 3. Открыть сайт и зарегистрироваться. **Первый зарегистрированный пользователь становится суперадмином.**
 4. В админ-панели создать студию и указать email главного — он регистрируется с этим email.

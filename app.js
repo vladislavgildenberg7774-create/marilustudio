@@ -257,6 +257,7 @@ function vAdmin() {
         <button class="btn pri sm" data-studio="${s.id}">Открыть</button>
         <button class="btn sm" data-sub="${s.id}|1">+1 мес</button>
         <button class="btn sm" data-sub="${s.id}|12">+1 год</button>
+        <button class="btn sm" data-team="${s.id}">Сотрудники</button>
         <button class="btn sm" data-editstudio="${s.id}">Изменить</button>
       </div></div>`).join('') : '<div class="card empty"><b>Студий пока нет</b>Нажмите «+ Студия», чтобы добавить первую.</div>'}
     <p class="muted" style="font-size:13px;margin:16px 4px">Вы вошли как ${esc(A.user.email)} · суперадмин</p>`;
@@ -271,13 +272,15 @@ function newStudioForm() {
     <div class="f"><label>Имя главного (руководителя)</label><input id="nsO"></div>
     <div class="f"><label>Email главного</label><input id="nsE" type="email" placeholder="Под этим email он зарегистрируется"></div>
     <div class="f"><label>Подписка</label><select id="nsM"><option value="0">Пробный период: 14 дней</option><option value="1" selected>1 месяц</option><option value="3">3 месяца</option><option value="6">6 месяцев</option><option value="12">1 год</option></select></div>
+    <div class="f"><label>Лимит сотрудников (1–30)</label><input id="nsL" type="number" min="1" max="30" value="6"></div>
     <div class="actions"><span class="sp"></span><button class="btn ghost" data-close>Отмена</button><button class="btn pri" id="nsS">Создать</button></div>`);
   $('nsS').onclick = async () => {
-    const n = $('nsN').value.trim(), o = $('nsO').value.trim(), e = $('nsE').value.trim(), m = +$('nsM').value;
+    const n = $('nsN').value.trim(), o = $('nsO').value.trim(), e = $('nsE').value.trim(), m = +$('nsM').value, mx = +$('nsL').value;
+    if (!(mx >= 1 && mx <= 30)) { toast('Лимит сотрудников — от 1 до 30'); return; }
     if (!n || !o || !/^\S+@\S+\.\S+$/.test(e)) { toast('Заполните название, имя и корректный email'); return; }
     $('nsS').disabled = true;
     try {
-      const id = await run(sb.rpc('admin_create_studio', { p_name: n, p_owner_name: o, p_owner_email: e, p_months: m }));
+      const id = await run(sb.rpc('admin_create_studio', { p_name: n, p_owner_name: o, p_owner_email: e, p_months: m, p_max: mx }));
       if (m === 0) await run(sb.from('studios').update({ sub_until: addDays(today(), 14) }).eq('id', id));
       closeModal(); toast('Студия создана. Главный регистрируется с email ' + e); loadAdmin();
     } catch (err) { $('nsS').disabled = false; }
@@ -295,12 +298,15 @@ function editStudioForm(id) {
   openModal(`<h3>${esc(s.name)}</h3>
     <div class="f"><label>Название</label><input id="esN" value="${esc(s.name)}"></div>
     <div class="two"><div class="f"><label>Подписка до</label><input id="esU" type="date" value="${s.sub_until || ''}"></div>
-    <div class="f"><label>Лимит сотрудников</label><input id="esL" type="number" min="1" max="50" value="${s.max_members}"></div></div>
+    <div class="f"><label>Лимит сотрудников</label><input id="esL" type="number" min="1" max="30" value="${s.max_members}"></div></div>
     <label class="sw">Заблокировать студию<input type="checkbox" id="esB" ${s.blocked ? 'checked' : ''}></label>
     <p class="muted" style="font-size:13px">Если подписка истекла или студия заблокирована, сотрудники видят данные, но не могут ничего менять.</p>
     <div class="actions"><button class="btn danger" id="esD">Удалить</button><span class="sp"></span><button class="btn ghost" data-close>Отмена</button><button class="btn pri" id="esS">Сохранить</button></div>`);
   $('esS').onclick = async () => {
-    await run(sb.from('studios').update({ name: $('esN').value.trim() || s.name, sub_until: $('esU').value || null, max_members: +$('esL').value || 6, blocked: $('esB').checked }).eq('id', id));
+    const mx = +$('esL').value;
+    if (!(mx >= 1 && mx <= 30)) { toast('Лимит сотрудников — от 1 до 30'); return; }
+    if (mx < s.members_count) { toast(`В студии уже ${s.members_count} сотрудников — сначала удалите лишних`); return; }
+    await run(sb.from('studios').update({ name: $('esN').value.trim() || s.name, sub_until: $('esU').value || null, max_members: mx, blocked: $('esB').checked }).eq('id', id));
     closeModal(); toast('Сохранено'); loadAdmin();
   };
   $('esD').onclick = () => confirmBox(`Удалить студию «${s.name}» со всеми записями, клиентами и сотрудниками? Это нельзя отменить.`, async () => {
@@ -483,6 +489,7 @@ document.addEventListener('click', async e => {
   const dy = t.closest('[data-day]'); if (dy) { goDate(dy.dataset.day); return; }
   const stu = t.closest('[data-studio]'); if (stu) { openStudio(stu.dataset.studio); return; }
   const sub = t.closest('[data-sub]'); if (sub) { const [id, m] = sub.dataset.sub.split('|'); extendSub(id, +m); return; }
+  const tm = t.closest('[data-team]'); if (tm) { await openStudio(tm.dataset.team); UI.tab = 'team'; render(); return; }
   const es = t.closest('[data-editstudio]'); if (es) { editStudioForm(es.dataset.editstudio); return; }
   const actEl = t.closest('[data-act]'); const act = actEl?.dataset.act;
   if (act) {
@@ -832,10 +839,11 @@ function vTeam() {
   const l = membersSorted(), max = A.studio.max_members;
   return backBtn() + `<p class="muted" style="margin:0 4px 10px;font-size:13px">Сотрудников: ${l.length} из ${max}. Каждый регистрируется в приложении с указанным здесь email и сразу попадает в студию.</p>
     <div class="list">${l.map(m => `<div class="li" data-open="members:${m.id}">${avatar(m, 44)}<div class="main"><b>${esc(m.name)}<span class="role ${m.role}">${ROLES[m.role]}</span></b><small>${esc(m.email)} · ${m.user_id ? '<span style="color:#1f7a37">подключён</span>' : '<span style="color:#8a5a00">ждёт регистрации</span>'}</small></div><span class="muted">›</span></div>`).join('')}</div>
-    ${l.length < max && canManage() ? '<div class="actions"><button class="btn pri" data-act="addMember">+ Добавить сотрудника</button></div>' : ''}
+    ${l.length < max && canManage() ? '<div class="actions"><button class="btn pri" data-act="addMember">+ Добавить сотрудника</button></div>' : `<p class="muted" style="font-size:13px;margin:10px 4px">Лимит сотрудников достигнут.${isSuper() ? ' Увеличьте его в админ-панели → «Изменить» (до 30).' : ' Увеличить его может администратор MariluStudio.'}</p>`}
+    ${isSuper() ? '<div class="okbox" style="margin-top:12px">Вы — администратор MariluStudio: можете назначать любые роли (в т.ч. главного) без ограничений по количеству.</div>' : ''}
     <div class="card" style="margin-top:14px;font-size:13px;line-height:1.55"><b>Права доступа</b><br>
       <b>Главный</b> — всё: журнал, клиенты, услуги и цены, команда, отчёты, настройки.<br>
-      <b>СММ-менеджер</b> (до 2) — журнал всех мастеров, запись и перенос клиентов, база клиентов. Без отчётов, цен и команды.<br>
+      <b>СММ-менеджер</b>${isSuper() ? '' : ' (до 2)'} — журнал всех мастеров, запись и перенос клиентов, база клиентов. Без отчётов, цен и команды.<br>
       <b>Мастер</b> — только свои записи и своих клиентов, может отметить «пришёл/не пришёл».</div>`;
 }
 function memberForm(m) {
@@ -853,7 +861,7 @@ function memberForm(m) {
     <label class="sw">Показывать колонкой в журнале<input type="checkbox" id="ij" ${m.in_journal ?? true ? 'checked' : ''}></label>
     <div class="two"><div class="f"><label>Порядок в журнале</label><input id="o" type="number" value="${m.sort || 0}"></div><div></div></div>
     <div class="f"><label>Цвет (если нет фото)</label><div class="colors" id="cl">${COLORS.map(c => `<i style="background:${c}" data-c="${c}" class="${c === color ? 'on' : ''}"></i>`).join('')}</div></div>
-    <div class="actions">${isNew || m.role === 'owner' ? '' : '<button class="btn danger" id="x">Удалить</button>'}<span class="sp"></span><button class="btn ghost" data-close>Отмена</button><button class="btn pri" id="s">Сохранить</button></div>`);
+    <div class="actions">${isNew || (m.role === 'owner' && !isSuper()) ? '' : '<button class="btn danger" id="x">Удалить</button>'}<span class="sp"></span><button class="btn ghost" data-close>Отмена</button><button class="btn pri" id="s">Сохранить</button></div>`);
   const pv = () => $('pv').innerHTML = avatar({ name: $('n').value || '?', color, photo }, 64);
   $('cl').onclick = e => { const i = e.target.closest('[data-c]'); if (!i) return; color = i.dataset.c; document.querySelectorAll('#cl i').forEach(x => x.classList.toggle('on', x === i)); pv(); };
   $('pf').onchange = e => {
