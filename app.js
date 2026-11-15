@@ -21,7 +21,7 @@ const COLORS = ['#7c6cf2', '#ec4899', '#0ea5e9', '#f59e0b', '#10b981', '#ef4444'
 const STATUSES = { booked: 'Ожидание', confirmed: 'Подтвердил', done: 'Пришёл', noshow: 'Не пришёл', cancelled: 'Отменена' };
 const ROLES = { owner: 'Главный', smm: 'СММ-менеджер', master: 'Мастер' };
 const DOWS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
-const PPM = 1.45; // пикселей на минуту в журнале
+const PPM = 1.8; // пикселей на минуту в журнале
 const LS = 'marilu-';
 const lsGet = k => { try { return localStorage.getItem(LS + k); } catch (e) { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(LS + k, v); } catch (e) { } };
@@ -428,10 +428,17 @@ function vJournal() {
     const mine = layout(list.filter(a => a.member_id === m.id).map(a => ({ ...a })));
     const cards = mine.map(a => {
       const c = D.clients[a.client_id];
-      const top = (a.start_min - st.work_start * 60) * PPM, h = Math.max(a.duration * PPM, 30) - 2, w = 100 / a._n;
+      const top = (a.start_min - st.work_start * 60) * PPM, w = 100 / a._n;
+      // карточка раскрывается, чтобы были видны все строки (как в YClients), но не налезает на следующую запись
+      const isNew = isNewClient(a) && a.status !== 'cancelled';
+      const lines = 1 + (c?.phone ? 1 : 0) + (svcNames(a) ? 1 : 0) + (a.note ? 1 : 0);
+      const need = 30 + (isNew ? 24 : 0) + lines * 17 + 8;
+      const next = mine.filter(o => o.id !== a.id && o._l === a._l && o.start_min >= a.start_min + 1).reduce((m, o) => Math.min(m, o.start_min), st.work_end * 60);
+      const room = (next - a.start_min) * PPM - 3;
+      const h = Math.max(a.duration * PPM - 2, Math.min(need, room), 30);
       return `<div class="appt s-${a.status}" data-appt="${a.id}" style="top:${top}px;height:${h}px;left:calc(${w * a._l}% + 3px);width:calc(${w}% - 6px)">
         <div class="ah"><span>${hm(a.start_min)}&thinsp;–&thinsp;${hm(a.start_min + a.duration)}</span>${clockSvg(hdrColor(a.status))}</div>
-        <div class="ab">${isNewClient(a) && a.status !== 'cancelled' ? '<span class="new">New</span>' : ''}
+        <div class="ab">${isNew ? '<span class="new">New</span>' : ''}
           <div>${esc(c?.name || 'Клиент')}</div>${c?.phone ? `<div>${esc(c.phone)}</div>` : ''}${svcNames(a) ? `<div>${esc(svcNames(a))}</div>` : ''}${a.note ? `<div>${esc(a.note)}</div>` : ''}</div></div>`;
     }).join('');
     const nl = UI.date === today() && nowY > 0 && nowY < H ? `<div class="nowline" style="top:${nowY}px"></div>` : '';
