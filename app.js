@@ -704,13 +704,21 @@ function pushCard(id) {
     const el = $(id); if (!el) return;
     const st = await pushState();
     const txt = {
-      on: ['🔔 Уведомления включены', 'Вы получаете пуши о новых, перенесённых и отменённых записях.', '<button class="btn sm" data-act="pushOff">Выключить</button>'],
+      on: ['🔔 Уведомления включены', 'Вы получаете пуши о новых, изменённых и отменённых записях.', '<button class="btn sm" data-act="pushOff">Выключить</button>'],
       off: ['🔔 Уведомления о записях', 'Получайте пуш, когда к вам записали клиента, перенесли или отменили запись.', '<button class="btn pri sm" data-act="pushOn">Включить уведомления</button>'],
       denied: ['🔕 Уведомления запрещены', 'Разрешите уведомления для MariluStudio в настройках телефона/браузера, затем обновите страницу.', ''],
       'ios-browser': ['🔔 Уведомления на iPhone', 'Добавьте приложение на экран «Домой»: «Поделиться» → «На экран „Домой“», откройте его с иконки и включите уведомления здесь.', ''],
       unsupported: ['🔕 Уведомления недоступны', 'Этот браузер не поддерживает пуш-уведомления. Попробуйте Chrome, Edge или Safari.', ''],
     }[st];
-    el.innerHTML = `<b>${txt[0]}</b><div class="muted" style="font-size:13px;margin:4px 0 8px">${txt[1]}</div>${txt[2]}`;
+    const watcher = A.view === 'studio' && A.me && ['owner', 'smm'].includes(A.me.role);
+    const allToggle = st === 'on' && watcher ? `<label class="sw" style="border-top:1px solid var(--line);margin-top:10px">Все записи студии<input type="checkbox" id="naT" ${A.me.notify_all !== false ? 'checked' : ''}></label>
+      <div class="muted" style="font-size:12px">${A.me.notify_all !== false ? 'Вы получаете пуши обо всех записях студии.' : 'Вы получаете пуши только о записях к вам.'} Мастера всегда получают только свои.</div>` : '';
+    el.innerHTML = `<b>${txt[0]}</b><div class="muted" style="font-size:13px;margin:4px 0 8px">${st === 'on' && !watcher ? 'Вы получаете пуши о своих записях: новая, изменена, отменена, передана другому мастеру.' : txt[1]}</div>${txt[2]}${allToggle}`;
+    const t = $('naT');
+    if (t) t.onchange = async () => {
+      try { await run(sb.rpc('set_notify_all', { p_studio: A.studio.id, p_on: t.checked })); A.me.notify_all = t.checked; if (D.members[A.me.id]) D.members[A.me.id].notify_all = t.checked; toast(t.checked ? 'Будут приходить все записи студии' : 'Только записи к вам'); render(); }
+      catch (e) { t.checked = !t.checked; }
+    };
   });
   return `<div class="card" id="${id}" style="margin-bottom:12px"><b>🔔 Уведомления</b><div class="muted" style="font-size:13px">Проверяю…</div></div>`;
 }
