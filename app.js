@@ -175,6 +175,7 @@ function vAuth() {
     <button class="btn pri wide" id="aGo">${reg ? 'Зарегистрироваться' : 'Войти'}</button>
     ${reg ? '<p class="muted" style="font-size:13px">Сотрудники регистрируются с тем email, который указал руководитель студии, — и сразу попадают в свою студию.</p>'
       : '<p style="text-align:center;margin:14px 0 0"><button type="button" class="link" id="aForgot">Забыли пароль?</button></p>'}
+    ${isStandalone() ? '' : '<button type="button" class="btn wide" data-act="install" style="margin-top:14px">📲 Установить приложение</button>'}
   </form></div>`;
 }
 async function authSubmit(e) {
@@ -500,6 +501,7 @@ document.addEventListener('click', async e => {
   const es = t.closest('[data-editstudio]'); if (es) { editStudioForm(es.dataset.editstudio); return; }
   const actEl = t.closest('[data-act]'); const act = actEl?.dataset.act;
   if (act) {
+    if (act === 'install') { installSheet(); return; }
     if (act === 'logout') { lsSet('studio', ''); closeChannel(); await unlinkPush(); await sb.auth.signOut(); return; }
     if (act === 'pushOn') { try { await enablePush(); } catch (e) { toast('Не удалось включить: ' + errText(e)); } return; }
     if (act === 'pushOff') { await disablePush(); return; }
@@ -724,6 +726,52 @@ function pushCard(id) {
 }
 navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'refresh' && A.view === 'studio') { loadWeek(true).then(render).catch(() => { }); } });
 
+
+/* ================= УСТАНОВКА ПРИЛОЖЕНИЯ ================= */
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; });
+window.addEventListener('appinstalled', () => { installPrompt = null; toast('Приложение установлено'); closeModal(); render(); });
+const isAndroid = () => /Android/i.test(navigator.userAgent);
+const shareIco = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#1d6ff2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-4px"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M6 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-1"/></svg>';
+const plusIco = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:inline;vertical-align:-4px"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg>';
+const step = (n, html) => `<div style="display:flex;gap:12px;align-items:flex-start;margin:0 0 14px"><span style="flex:0 0 28px;height:28px;border-radius:50%;background:var(--yel);display:grid;place-items:center;font-weight:800">${n}</span><div style="padding-top:3px;line-height:1.45">${html}</div></div>`;
+function installSheet(tab) {
+  if (isStandalone()) { openModal('<h3>Приложение уже установлено ✓</h3><p class="muted">Вы открыли MariluStudio с экрана «Домой».</p><div class="actions"><span class="sp"></span><button class="btn pri" data-close>Понятно</button></div>'); return; }
+  tab = tab || (isIOS() ? 'ios' : isAndroid() ? 'android' : 'pc');
+  const inApp = /Telegram|Instagram|FBAN|FBAV|VKClient|WhatsApp|YaBrowser\/[\d.]+.*Mobile.*YaApp/i.test(navigator.userAgent);
+  const url = location.origin + location.pathname.replace(/index\.html$/, '');
+  const body = {
+    android: `
+      ${installPrompt ? `<button class="btn pri wide" id="doInstall" style="font-size:17px;padding:14px">📲 Установить MariluStudio</button>
+        <p class="muted" style="font-size:13px;margin:8px 0 18px;text-align:center">Нажмите и подтвердите «Установить» — иконка появится на экране.</p>
+        <p style="font-weight:700;margin:0 0 10px">Если кнопка не сработала:</p>` : ''}
+      ${step(1, 'Откройте эту страницу в <b>Google Chrome</b>.')}
+      ${step(2, 'Нажмите меню <b>⋮</b> справа вверху.')}
+      ${step(3, 'Выберите <b>«Установить приложение»</b> или <b>«Добавить на главный экран»</b> → <b>«Установить»</b>.')}
+      ${step(4, 'Откройте <b>MariluStudio</b> с иконки на экране и войдите.')}`,
+    ios: `
+      ${step(1, 'Откройте эту страницу в <b>Safari</b>.' + (inApp ? '<br><span style="color:#b42318">Сейчас она открыта внутри другого приложения — скопируйте ссылку ниже и вставьте в Safari.</span>' : ''))}
+      ${step(2, `Нажмите <b>«Поделиться»</b> ${shareIco} внизу экрана (на новых iOS — в меню <b>«⋯»</b> у адресной строки).`)}
+      ${step(3, `Пролистайте вниз и выберите <b>«На экран „Домой“»</b> ${plusIco}.`)}
+      ${step(4, 'Нажмите <b>«Добавить»</b> — появится иконка <b>MariluStudio</b>.')}
+      ${step(5, 'Откройте приложение <b>с иконки</b>, войдите и включите уведомления: <b>Ещё → Включить уведомления</b>.')}`,
+    pc: `
+      ${installPrompt ? '<button class="btn pri wide" id="doInstall" style="font-size:17px;padding:14px;margin-bottom:16px">💻 Установить на компьютер</button>' : ''}
+      ${step(1, 'Откройте сайт в <b>Chrome</b> или <b>Edge</b>.')}
+      ${step(2, 'Справа в адресной строке нажмите значок установки (монитор со стрелкой) или меню <b>⋮ → «Установить MariluStudio»</b>.')}
+      ${step(3, 'Приложение появится в меню «Пуск» и на рабочем столе.')}`,
+  }[tab];
+  openModal(`<h3>Установить приложение</h3>
+    <div class="seg">${[['ios', '📱 iPhone'], ['android', '🤖 Android'], ['pc', '💻 Компьютер']].map(([k, v]) => `<button data-itab="${k}" class="${k === tab ? 'on' : ''}">${v}</button>`).join('')}</div>
+    <div style="margin-top:14px">${body}</div>
+    <div class="f" style="margin-top:6px"><label>Ссылка на приложение</label><div style="display:flex;gap:8px"><input value="${esc(url)}" readonly id="instUrl"><button class="btn sm" id="instCopy">Копировать</button></div></div>
+    <div class="actions"><span class="sp"></span><button class="btn ghost" data-close>Закрыть</button></div>`);
+  document.querySelectorAll('[data-itab]').forEach(b => b.onclick = () => installSheet(b.dataset.itab));
+  $('instCopy').onclick = async () => { try { await navigator.clipboard.writeText(url); toast('Ссылка скопирована'); } catch (e) { $('instUrl').select(); } };
+  const di = $('doInstall');
+  if (di) di.onclick = async () => { if (!installPrompt) return; installPrompt.prompt(); const r = await installPrompt.userChoice; installPrompt = null; if (r.outcome !== 'accepted') installSheet(tab); };
+}
+
 /* ================= ЕЩЁ ================= */
 function vMore() {
   const it = [];
@@ -737,6 +785,7 @@ function vMore() {
   const sub = subBadge(A.studio);
   return pushCard('pushMore') + `<div class="card" style="margin-bottom:12px"><b>${esc(A.studio.name)}</b><div class="muted" style="font-size:13px;margin-top:4px">Ваша роль: ${A.me ? ROLES[A.me.role] : 'Администратор MariluStudio'} · ${sub}</div></div>
     <div class="list">${it.map(([k, t, s]) => `<div class="li" data-act="go" data-v="${k}"><div class="main"><b>${t}</b><small>${s}</small></div><span class="muted">›</span></div>`).join('')}</div>
+    ${isStandalone() ? '' : '<button class="btn wide" data-act="install" style="margin-top:12px">📲 Установить приложение на телефон</button>'}
     <div class="actions" style="margin-top:14px">${isSuper() ? '<button class="btn" data-act="admin">Админ-панель</button>' : ''}${A.memberships.length > 1 ? '<button class="btn" data-act="pick">Сменить студию</button>' : ''}<span class="sp"></span><button class="btn danger" data-act="logout">Выйти</button></div>`;
 }
 const backBtn = () => `<button class="back" data-act="go" data-v="more">‹ Ещё</button>`;
