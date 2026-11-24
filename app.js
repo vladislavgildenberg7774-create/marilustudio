@@ -57,7 +57,7 @@ let channel = null;
 const arr = c => Object.values(D[c]);
 const isSuper = () => !!A.profile?.is_superadmin;
 const subOk = s => s && !s.blocked && (!s.sub_until || s.sub_until >= today());
-const canBook = () => isSuper() || (['owner', 'smm'].includes(A.role) && subOk(A.studio));
+const canBook = () => isSuper() || (A.role === 'owner' && subOk(A.studio)); // СММ — только чтение
 const canManage = () => isSuper() || (A.role === 'owner' && subOk(A.studio));
 const isMaster = () => A.role === 'master' && !isSuper();
 const membersSorted = () => arr('members').sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.name.localeCompare(b.name));
@@ -97,7 +97,7 @@ async function loadAccount() {
   if (last && A.memberships.some(m => m.studio_id === last)) return openStudio(last);
   if (isSuper()) { A.view = 'admin'; render(); return; }
   if (A.memberships.length === 1) return openStudio(A.memberships[0].studio_id);
-  A.view = A.memberships.length ? 'pick' : 'waiting'; render();
+  A.view = A.memberships.length ? 'pick' : (A.profile.status === 'rejected' ? 'rejected' : 'waiting'); render();
 }
 
 async function openStudio(id) {
@@ -169,11 +169,13 @@ function vAuth() {
     <div class="brand"><div class="lg">M</div><div><b>MariluStudio</b><small>Журнал записи для студий красоты</small></div></div>
     <div class="seg"><button type="button" data-auth="login" class="${reg ? '' : 'on'}">Вход</button><button type="button" data-auth="reg" class="${reg ? 'on' : ''}">Регистрация</button></div>
     ${UI.authErr ? `<div class="err">${esc(UI.authErr)}</div>` : ''}${UI.authMsg ? `<div class="okbox">${esc(UI.authMsg)}</div>` : ''}
-    ${reg ? `<div class="f"><label>Ваше имя</label><input id="aName" autocomplete="name" required></div>` : ''}
+    ${reg ? `<div class="f"><label>Ваше имя</label><input id="aName" autocomplete="name" required></div>
+      <div class="f"><label>Телефон</label><input id="aPhone" type="tel" autocomplete="tel" placeholder="+7 900 000-00-00"></div>
+      <div class="f"><label>Студия и должность</label><input id="aNote" placeholder="Например: Студия Marilu, визажист"></div>` : ''}
     <div class="f"><label>Email</label><input id="aEmail" type="email" autocomplete="email" required></div>
     <div class="f"><label>Пароль</label><input id="aPass" type="password" autocomplete="${reg ? 'new-password' : 'current-password'}" minlength="6" required></div>
     <button class="btn pri wide" id="aGo">${reg ? 'Зарегистрироваться' : 'Войти'}</button>
-    ${reg ? '<p class="muted" style="font-size:13px">Сотрудники регистрируются с тем email, который указал руководитель студии, — и сразу попадают в свою студию.</p>'
+    ${reg ? '<p class="muted" style="font-size:13px">После регистрации заявку проверит администратор MariluStudio и откроет доступ. Если руководитель уже добавил ваш email в студию — доступ откроется сразу.</p>'
       : '<p style="text-align:center;margin:14px 0 0"><button type="button" class="link" id="aForgot">Забыли пароль?</button></p>'}
     ${isStandalone() ? '' : '<button type="button" class="btn wide" data-act="install" style="margin-top:14px">📲 Установить приложение</button>'}
   </form></div>`;
@@ -184,7 +186,7 @@ async function authSubmit(e) {
   UI.authErr = ''; UI.authMsg = ''; $('aGo').disabled = true;
   try {
     if (UI.authMode === 'reg') {
-      const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { full_name: $('aName').value.trim() }, emailRedirectTo: location.origin + location.pathname } });
+      const { data, error } = await sb.auth.signUp({ email, password: pass, options: { data: { full_name: $('aName').value.trim(), phone: $('aPhone').value.trim(), note: $('aNote').value.trim() }, emailRedirectTo: location.origin + location.pathname } });
       if (error) throw error;
       if (!data.session) { UI.authMsg = 'Почти готово! Мы отправили письмо на ' + email + ' — подтвердите email и войдите.'; UI.authMode = 'login'; render(); }
     } else {
@@ -206,10 +208,15 @@ function newPasswordForm() {
 }
 
 function vWaiting() {
+  if (A.view === 'rejected') return `<div class="auth"><div class="box">
+    <div class="brand"><div class="lg">M</div><div><b>MariluStudio</b><small>${esc(A.user?.email)}</small></div></div>
+    <div class="err">Заявка отклонена</div>
+    <p class="muted">Доступ к MariluStudio не открыт. Если это ошибка — свяжитесь с руководителем студии.</p>
+    <div class="actions"><button class="btn" data-act="logout">Выйти</button></div></div></div>`;
   return `<div class="auth"><div class="box">
     <div class="brand"><div class="lg">M</div><div><b>MariluStudio</b><small>${esc(A.user?.email)}</small></div></div>
-    <p><b>Вы ещё не добавлены в студию.</b></p>
-    <p class="muted">Попросите руководителя студии добавить вас в команду по email <b>${esc(A.user?.email)}</b>. После этого нажмите «Обновить».</p>
+    <p><b>⏳ Заявка на рассмотрении</b></p>
+    <p class="muted">Администратор MariluStudio проверит заявку и откроет доступ к вашей студии. Обычно это занимает немного времени. Потом нажмите «Обновить».</p>
     <div class="actions"><button class="btn pri" data-act="reload">Обновить</button><button class="btn" data-act="logout">Выйти</button></div>
   </div></div>`;
 }
@@ -249,6 +256,7 @@ function vAdmin() {
       <div class="stat"><small>Истекает за 7 дней</small><b style="color:#8a5a00">${soon}</b></div>
       <div class="stat"><small>Неактивны</small><b style="color:#b42318">${adminRows.length - active}</b></div>
     </div>
+    ${vRequests()}
     <input class="search" id="search" placeholder="Поиск студии, владельца, email" value="${esc(UI.q)}">
     ${list.length ? list.map(s => `<div class="scard">
       <h4>${esc(s.name)}</h4>
@@ -263,8 +271,32 @@ function vAdmin() {
       </div></div>`).join('') : '<div class="card empty"><b>Студий пока нет</b>Нажмите «+ Студия», чтобы добавить первую.</div>'}
     <p class="muted" style="font-size:13px;margin:16px 4px">Вы вошли как ${esc(A.user.email)} · суперадмин</p>`;
 }
+let reqRows = [], reqTab = 'pending';
+function vRequests() {
+  const tabs = `<div class="seg" style="margin-bottom:8px"><button data-reqtab="pending" class="${reqTab === 'pending' ? 'on' : ''}">Заявки${reqTab === 'pending' && reqRows.length ? ' · ' + reqRows.length : ''}</button><button data-reqtab="rejected" class="${reqTab === 'rejected' ? 'on' : ''}">Отклонённые</button></div>`;
+  if (!reqRows.length) return tabs + `<p class="muted" style="font-size:13px;margin:0 4px 14px">${reqTab === 'pending' ? 'Новых заявок нет.' : 'Отклонённых нет.'}</p>`;
+  return tabs + `<div class="list" style="margin-bottom:14px">${reqRows.map(r => `<div class="li" data-req="${r.id}"><div class="main"><b>${esc(r.full_name || r.email)}</b><small>${esc(r.email)}${r.phone ? ' · ' + esc(r.phone) : ''}${r.note ? '<br>' + esc(r.note) : ''}</small></div><span class="btn pri sm">${reqTab === 'pending' ? 'Рассмотреть' : 'Одобрить'}</span></div>`).join('')}</div>`;
+}
+function reqForm(id) {
+  const r = reqRows.find(x => x.id === id); if (!r) return;
+  if (!adminRows.length) { toast('Сначала создайте студию'); return; }
+  openModal(`<h3>Заявка</h3>
+    <p style="margin:0 0 4px"><b>${esc(r.full_name || '—')}</b></p>
+    <p class="muted" style="margin:0 0 12px">${esc(r.email)}${r.phone ? ' · ' + esc(r.phone) : ''}<br>${esc(r.note || '')}<br>Подана: ${new Date(r.created_at).toLocaleString('ru-RU')}</p>
+    <div class="f"><label>Студия</label><select id="rqS">${adminRows.map(s => `<option value="${s.id}">${esc(s.name)} (${s.members_count}/${s.max_members})</option>`).join('')}</select></div>
+    <div class="two"><div class="f"><label>Роль</label><select id="rqR"><option value="master">Мастер</option><option value="smm">СММ (только просмотр)</option><option value="owner">Главный (админ студии)</option></select></div>
+    <div class="f"><label>Должность</label><input id="rqP" placeholder="Стилист, визажист…"></div></div>
+    <div class="f"><label>Имя в журнале</label><input id="rqN" value="${esc(r.full_name || '')}"></div>
+    <div class="actions">${reqTab === 'pending' ? '<button class="btn danger" id="rqX">Отклонить</button>' : ''}<span class="sp"></span><button class="btn ghost" data-close>Отмена</button><button class="btn pri" id="rqOk">Одобрить</button></div>`);
+  $('rqOk').onclick = async () => {
+    $('rqOk').disabled = true;
+    try { await run(sb.rpc('admin_approve', { p_user: id, p_studio: $('rqS').value, p_role: $('rqR').value, p_name: $('rqN').value, p_position: $('rqP').value })); closeModal(); toast('Доступ открыт'); adminRows = null; render(); }
+    catch (e) { const b = $('rqOk'); if (b) b.disabled = false; }
+  };
+  const x = $('rqX'); if (x) x.onclick = () => confirmBox('Отклонить заявку? Пользователь не получит доступ.', async () => { await run(sb.rpc('admin_reject', { p_user: id })); closeModal(); toast('Заявка отклонена'); adminRows = null; render(); });
+}
 async function loadAdmin() {
-  try { adminRows = await run(sb.rpc('admin_studio_list')); } catch (e) { adminRows = []; }
+  try { [adminRows, reqRows] = await Promise.all([run(sb.rpc('admin_studio_list')), run(sb.rpc('admin_requests', { p_status: reqTab }))]); } catch (e) { adminRows = adminRows || []; reqRows = []; }
   if (A.view === 'admin') render();
 }
 function newStudioForm() {
@@ -378,13 +410,13 @@ function render() {
   let html;
   if (A.view === 'loading') html = '<div class="empty" style="padding-top:40vh">Загрузка…</div>';
   else if (A.view === 'auth') html = vAuth();
-  else if (A.view === 'waiting') html = vWaiting();
+  else if (A.view === 'waiting' || A.view === 'rejected') html = vWaiting();
   else if (A.view === 'pick') html = vPick();
   else if (A.view === 'error') html = vError();
   else if (A.view === 'admin') html = vAdmin();
   else html = ({ journal: vJournal, schedule: vSchedule, clients: vClients, notif: vNotif, more: vMore, services: vServices, team: vTeam, report: vReport, settings: vSettings, profile: vProfile })[UI.tab]();
   app.innerHTML = html;
-  app.style.padding = ['auth', 'waiting', 'pick', 'error'].includes(A.view) ? '0' : '';
+  app.style.padding = ['auth', 'waiting', 'rejected', 'pick', 'error'].includes(A.view) ? '0' : '';
   $('fab').style.display = A.view === 'studio' && ((UI.tab === 'clients' && canBook()) || (['services', 'team'].includes(UI.tab) && canManage())) ? '' : 'none';
   measure();
   if (A.view === 'studio' && UI.tab === 'journal') afterJournal();
@@ -496,6 +528,8 @@ document.addEventListener('click', async e => {
   const tb = t.closest('[data-tab]'); if (tb) { UI.tab = tb.dataset.tab; UI.q = ''; if (UI.tab === 'notif') { markSeen(); notifRows = null; } if (UI.tab === 'report') reportRows = null; render(); window.scrollTo(0, 0); return; }
   const dy = t.closest('[data-day]'); if (dy) { goDate(dy.dataset.day); return; }
   const stu = t.closest('[data-studio]'); if (stu) { openStudio(stu.dataset.studio); return; }
+  const rq = t.closest('[data-req]'); if (rq) { reqForm(rq.dataset.req); return; }
+  const rt = t.closest('[data-reqtab]'); if (rt) { reqTab = rt.dataset.reqtab; adminRows = null; render(); return; }
   const sub = t.closest('[data-sub]'); if (sub) { const [id, m] = sub.dataset.sub.split('|'); extendSub(id, +m); return; }
   const tm = t.closest('[data-team]'); if (tm) { await openStudio(tm.dataset.team); UI.tab = 'team'; render(); return; }
   const es = t.closest('[data-editstudio]'); if (es) { editStudioForm(es.dataset.editstudio); return; }
@@ -907,7 +941,7 @@ function vTeam() {
     ${isSuper() ? '<div class="okbox" style="margin-top:12px">Вы — администратор MariluStudio: можете назначать любые роли (в т.ч. главного) без ограничений по количеству.</div>' : ''}
     <div class="card" style="margin-top:14px;font-size:13px;line-height:1.55"><b>Права доступа</b><br>
       <b>Главный</b> — всё: журнал, клиенты, услуги и цены, команда, отчёты, настройки.<br>
-      <b>СММ-менеджер</b>${isSuper() ? '' : ' (до 2)'} — журнал всех мастеров, запись и перенос клиентов, база клиентов. Без отчётов, цен и команды.<br>
+      <b>СММ-менеджер</b>${isSuper() ? '' : ' (до 2)'} — только просмотр: журнал всех мастеров и база клиентов. Ничего не создаёт, не меняет и не удаляет.<br>
       <b>Мастер</b> — только свои записи и своих клиентов, может отметить «пришёл/не пришёл».</div>`;
 }
 function memberForm(m) {
