@@ -173,3 +173,9 @@ td.n,th.n{text-align:right}
 .role.owner{background:#fff1b8;color:#7a5200}.role.smm{background:#e0e7ff;color:#3730a3}.role.master{background:#fce7f3;color:#9d174d}
 .topline{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .topline h2{margin:0;flex:1}
+
+/* ПК: меню внизу по центру, кнопка «+» не перекрывает «Ещё» */
+@media(min-width:760px){
+  nav{left:50%;right:auto;transform:translateX(-50%);width:640px;border:1px solid var(--line);border-bottom:0;border-radius:18px 18px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.05)}
+  .fab{right:max(24px,calc(50% - 400px));bottom:calc(var(--nh) + 24px)}
+}
