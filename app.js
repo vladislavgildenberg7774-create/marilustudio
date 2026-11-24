@@ -51,7 +51,7 @@ async function run(promise) {
 
 /* ================= СОСТОЯНИЕ ================= */
 const A = { user: null, profile: null, memberships: [], studio: null, role: null, me: null, view: 'loading' };
-const D = { members: {}, services: {}, clients: {}, appts: {}, range: null, returning: new Set() };
+const D = { members: {}, services: {}, clients: {}, appts: {}, shifts: {}, shiftMonths: new Set(), range: null, returning: new Set() };
 const UI = { tab: 'journal', date: today(), q: '', period: 'month', mf: 'all', showC: false, sx: 0, sy: null, authMode: 'login', authMsg: '', authErr: '' };
 let channel = null;
 const arr = c => Object.values(D[c]);
@@ -110,7 +110,7 @@ async function openStudio(id) {
     A.role = A.me?.role || (isSuper() ? 'owner' : null);
     lsSet('studio', id);
     UI.tab = 'journal'; UI.mf = 'all'; UI.sy = null; UI.date = today();
-    D.members = {}; D.services = {}; D.clients = {}; D.appts = {}; D.range = null;
+    D.members = {}; D.services = {}; D.clients = {}; D.appts = {}; D.shifts = {}; D.shiftMonths = new Set(); D.range = null;
     const [ms, sv, cl] = await Promise.all([
       run(sb.from('members').select('*').eq('studio_id', id)),
       run(sb.from('services').select('*').eq('studio_id', id)),
@@ -132,6 +132,7 @@ async function loadWeek(force) {
   const rows = await run(sb.from('appointments').select('*').eq('studio_id', A.studio.id).gte('day', from).lte('day', to));
   if (D.range !== from) return;
   D.appts = {}; rows.forEach(r => D.appts[r.id] = r);
+  await Promise.all([loadShiftMonth(from.slice(0, 7)), loadShiftMonth(to.slice(0, 7))]);
   // клиенты, у которых уже были визиты до этой недели (для метки New)
   const ids = [...new Set(rows.map(r => r.client_id).filter(Boolean))];
   D.returning = new Set();
@@ -142,6 +143,17 @@ async function loadWeek(force) {
   }
 }
 
+async function loadShiftMonth(ym) {
+  if (D.shiftMonths.has(ym)) return;
+  D.shiftMonths.add(ym);
+  const [y, m] = ym.split('-').map(Number);
+  const from = ym + '-01', to = iso(new Date(y, m, 0));
+  try {
+    const rows = await run(sb.from('shifts').select('*').eq('studio_id', A.studio.id).gte('day', from).lte('day', to));
+    rows.forEach(r => D.shifts[r.id] = r);
+  } catch (e) { D.shiftMonths.delete(ym); }
+}
+const shiftOf = (mid, day) => Object.values(D.shifts).find(x => x.member_id === mid && x.day === day);
 function subscribe(id) {
   const apply = (table, key) => p => {
     if (p.eventType === 'DELETE') { delete D[key][p.old.id]; }
@@ -158,6 +170,7 @@ function subscribe(id) {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'clients', filter: 'studio_id=eq.' + id }, apply('clients', 'clients'))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'members', filter: 'studio_id=eq.' + id }, apply('members', 'members'))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'services', filter: 'studio_id=eq.' + id }, apply('services', 'services'))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shifts', filter: 'studio_id=eq.' + id }, apply('shifts', 'shifts'))
     .subscribe();
 }
 function closeChannel() { if (channel) { sb.removeChannel(channel); channel = null; } }
@@ -354,6 +367,16 @@ const I = {
   clients: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14c2.8 0 4.5 2 4.5 5"/>',
   notif: '<path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8M13.7 20a2 2 0 0 1-3.4 0"/>',
   more: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  dots: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
+  phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/>',
+  bell2: '<path d="M3 20h18M5 20v-2a7 7 0 0 1 14 0v2M12 11V9M8 6l1 2M16 6l-1 2M12 4v1"/>',
+  chart: '<circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.1 19.8a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 1.2 14.6H1a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 2.2 7.9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H6.6A1.6 1.6 0 0 0 7.6 2.1V2a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5 1H19a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
+  msg: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 1 1 21 11.5z"/>',
+  clock2: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M8 7h8M8 11h6"/>',
   chev: '<path d="m6 9 6 6 6-6"/>',
   sliders: '<path d="M3 6h11M18 6h3M3 12h4M11 12h10M3 18h13M20 18h1"/><circle cx="16" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
   group: '<circle cx="12" cy="9" r="3"/><path d="M6.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="5.5" cy="10" r="2"/><circle cx="18.5" cy="10" r="2"/><path d="M2 17c0-2 1.3-3.3 3.5-3.3M22 17c0-2-1.3-3.3-3.5-3.3"/>',
@@ -393,8 +416,9 @@ function renderHeader() {
       ${isMaster() ? '' : `<button class="allchip" data-act="mf">${m ? avatar(m, 30) : `<span class="gi"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6">${I.group}</svg></span>`}<span>${m ? esc(m.name.split(' ')[0]) : 'Все'}</span></button>`}
       <button class="ficon" data-act="view" aria-label="Вид">${ic('sliders', 1.7)}</button>${banner}`;
   } else {
-    const t = { schedule: 'График работы', clients: 'Клиенты', notif: 'Уведомления', more: esc(A.studio.name), services: 'Услуги', team: 'Команда', report: 'Отчёт', settings: 'Настройки студии', profile: 'Профиль' }[UI.tab];
-    h.innerHTML = `<h1>${t}</h1>${banner}`;
+    const t = { schedule: 'График работы', clients: 'Клиенты', notif: 'Уведомления', more: 'Ещё', services: 'Услуги', team: 'Сотрудники', report: 'Аналитика', settings: 'Настройки студии', profile: 'Профиль' }[UI.tab];
+    const extra = UI.tab === 'clients' ? `<button class="ficon" data-act="clientsMenu" aria-label="Меню">${ic('dots', 2)}</button>${canBook() ? `<button class="ficon" data-act="newClient" aria-label="Новый клиент" style="font-size:30px;line-height:1;padding:0 4px">+</button>` : ''}` : '';
+    h.innerHTML = `<h1>${t}</h1>${extra}${banner}`;
   }
 }
 function measure() {
@@ -417,7 +441,7 @@ function render() {
   else html = ({ journal: vJournal, schedule: vSchedule, clients: vClients, notif: vNotif, more: vMore, services: vServices, team: vTeam, report: vReport, settings: vSettings, profile: vProfile })[UI.tab]();
   app.innerHTML = html;
   app.style.padding = ['auth', 'waiting', 'rejected', 'pick', 'error'].includes(A.view) ? '0' : '';
-  $('fab').style.display = A.view === 'studio' && ((UI.tab === 'clients' && canBook()) || (['services', 'team'].includes(UI.tab) && canManage())) ? '' : 'none';
+  $('fab').style.display = A.view === 'studio' && (['services', 'team'].includes(UI.tab) && canManage()) ? '' : 'none';
   measure();
   if (A.view === 'studio' && UI.tab === 'journal') afterJournal();
   if (A.view === 'auth') { $('authForm').onsubmit = authSubmit; const f = $('aForgot'); if (f) f.onclick = forgot; }
@@ -475,7 +499,15 @@ function vJournal() {
           <div>${esc(c?.name || 'Клиент')}</div>${c?.phone ? `<div>${esc(c.phone)}</div>` : ''}${svcNames(a) ? `<div>${esc(svcNames(a))}</div>` : ''}${a.note ? `<div>${esc(a.note)}</div>` : ''}</div></div>`;
     }).join('');
     const nl = UI.date === today() && nowY > 0 && nowY < H ? `<div class="nowline" style="top:${nowY}px"></div>` : '';
-    return `<div class="mc" data-master="${m.id}" style="width:${cw}px;height:${H}px;--hp:${60 * PPM}px;${canBook() ? '' : 'cursor:default'}">${cards}${nl}</div>`;
+    // нерабочее время по графику — серой штриховкой (только если у сотрудника заполнен график)
+    let off = '';
+    const ym = UI.date.slice(0, 7);
+    if (Object.values(D.shifts).some(x => x.member_id === m.id && x.day.startsWith(ym))) {
+      const sh = shiftOf(m.id, UI.date), s0 = st.work_start * 60, s1 = st.work_end * 60;
+      const band = (a, b) => b > a ? `<div class="offt" style="top:${(a - s0) * PPM}px;height:${(b - a) * PPM}px"></div>` : '';
+      off = sh ? band(s0, Math.min(sh.start_min, s1)) + band(Math.max(sh.end_min, s0), s1) : band(s0, s1);
+    }
+    return `<div class="mc" data-master="${m.id}" style="width:${cw}px;height:${H}px;--hp:${60 * PPM}px;${canBook() ? '' : 'cursor:default'}">${off}${cards}${nl}</div>`;
   }).join('');
   return `<div class="jwrap"><div class="journal" id="jr">
       <div class="hrow"><div class="corner">${canBook() ? '<button class="plus" data-act="newAppt" aria-label="Новая запись">+</button>' : ''}</div>${head}</div>
@@ -527,6 +559,9 @@ document.addEventListener('click', async e => {
   const au = t.closest('[data-auth]'); if (au) { UI.authMode = au.dataset.auth; UI.authErr = ''; UI.authMsg = ''; render(); return; }
   const tb = t.closest('[data-tab]'); if (tb) { UI.tab = tb.dataset.tab; UI.q = ''; if (UI.tab === 'notif') { markSeen(); notifRows = null; } if (UI.tab === 'report') reportRows = null; render(); window.scrollTo(0, 0); return; }
   const dy = t.closest('[data-day]'); if (dy) { goDate(dy.dataset.day); return; }
+  const mn = t.closest('[data-month]'); if (mn) { UI.sm = mn.dataset.month; render(); return; }
+  const sc = t.closest('[data-shift]'); if (sc) { const [mid, d] = sc.dataset.shift.split('|'); shiftForm(mid, d); return; }
+  const cm = t.closest('[data-cmenu]'); if (cm) { clientMenu(D.clients[cm.dataset.cmenu]); return; }
   const stu = t.closest('[data-studio]'); if (stu) { openStudio(stu.dataset.studio); return; }
   const rq = t.closest('[data-req]'); if (rq) { reqForm(rq.dataset.req); return; }
   const rt = t.closest('[data-reqtab]'); if (rt) { reqTab = rt.dataset.reqtab; adminRows = null; render(); return; }
@@ -536,6 +571,9 @@ document.addEventListener('click', async e => {
   const actEl = t.closest('[data-act]'); const act = actEl?.dataset.act;
   if (act) {
     if (act === 'install') { installSheet(); return; }
+    if (act === 'sEdit') { UI.sEdit = !UI.sEdit; render(); return; }
+    if (act === 'clientsMenu') { clientsMenu(); return; }
+    if (act === 'newClient') { clientForm({}); return; }
     if (act === 'logout') { lsSet('studio', ''); closeChannel(); await unlinkPush(); await sb.auth.signOut(); return; }
     if (act === 'pushOn') { try { await enablePush(); } catch (e) { toast('Не удалось включить: ' + errText(e)); } return; }
     if (act === 'pushOff') { await disablePush(); return; }
@@ -665,23 +703,73 @@ function apptForm(a) {
 }
 
 /* ================= ГРАФИК ================= */
+const MONTHS = ['янв', 'февр', 'март', 'апр', 'май', 'июнь', 'июль', 'авг', 'сент', 'окт', 'нояб', 'дек'];
+const DOW2 = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 function vSchedule() {
-  const mon = monday(UI.date), days = [...Array(7)].map((_, i) => addDays(mon, i));
-  const ms = journalMembers(), st = A.studio, dayMin = (st.work_end - st.work_start) * 60;
-  if (D.range !== mon) { loadWeek().then(render).catch(() => { }); }
-  let h = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><button class="icon-btn" data-act="wk" data-v="-7">‹</button><b style="flex:1;text-align:center">${fmtShort(days[0])} – ${fmtShort(days[6])}</b><button class="icon-btn" data-act="wk" data-v="7">›</button></div>`;
-  if (!ms.length) return h + `<div class="card empty"><b>Нет сотрудников в журнале</b></div>`;
-  h += `<div class="sched"><table><tr><th>Сотрудник</th>${days.map((x, i) => `<th class="${i === 6 ? 'sun' : ''} ${x === today() ? 'tdy' : ''}">${DOWS[i]}<br>${parseISO(x).getDate()}</th>`).join('')}</tr>`;
-  ms.forEach(m => {
-    h += `<tr><td>${esc(m.name.split(' ')[0])}</td>`;
-    days.forEach(x => {
-      const l = arr('appts').filter(a => a.member_id === m.id && a.day === x && a.status !== 'cancelled');
-      const busy = l.reduce((t, a) => t + a.duration, 0);
-      h += l.length ? `<td class="c" data-cell="${m.id}|${x}"><b>${l.length}</b><small>${Math.round(busy / dayMin * 100)}%</small></td>` : `<td class="c free" data-cell="${m.id}|${x}">—</td>`;
-    });
-    h += '</tr>';
+  const ym = UI.sm || today().slice(0, 7); UI.sm = ym;
+  if (!D.shiftMonths.has(ym)) { loadShiftMonth(ym).then(() => { if (UI.tab === 'schedule') render(); }); }
+  const [y, mo] = ym.split('-').map(Number), n = new Date(y, mo, 0).getDate();
+  const days = [...Array(n)].map((_, i) => ym + '-' + pad(i + 1));
+  const ms = journalMembers().length ? membersSorted().filter(m => m.in_journal) : [];
+  if (!ms.length) return `<div class="card empty"><b>Нет сотрудников в журнале</b>${canManage() ? 'Добавьте их в «Ещё» → «Сотрудники».' : ''}</div>` + monthStrip();
+  const edit = UI.sEdit && canManage();
+  const head = days.map(d => { const dt = parseISO(d); return `<div class="gd ${d === today() ? 'tdy' : ''} ${dt.getDay() === 0 ? 'sun' : ''}"><b>${dt.getDate()}</b><small>${DOW2[dt.getDay()]}</small></div>`; }).join('');
+  const rows = ms.map(m => `<div class="grow"><div class="gname">${avatar(m, 40)}<small>${esc(m.name.split(' ')[0])}</small></div>${days.map(d => {
+    const sh = shiftOf(m.id, d);
+    return `<div class="gc ${edit ? 'ed' : ''}" ${edit ? `data-shift="${m.id}|${d}"` : `data-cell="${m.id}|${d}"`}>${sh ? `<span>${hm(sh.start_min)}-<br>${hm(sh.end_min)}</span>` : (edit ? '<i>+</i>' : '')}</div>`;
+  }).join('')}</div>`).join('');
+  setTimeout(() => {
+    const g = $('grid'); if (!g || g.dataset.done) return; g.dataset.done = 1;
+    if (UI.gx && UI.gx[0] === ym) g.scrollLeft = UI.gx[1];
+    else if (ym === today().slice(0, 7)) { const t = g.querySelector('.gd.tdy'); if (t) g.scrollLeft = t.offsetLeft - 66 - 4; }
+    g.onscroll = () => { UI.gx = [ym, g.scrollLeft]; };
   });
-  return h + `</table></div><p class="muted" style="font-size:13px;margin:10px 4px">В ячейке: число записей и загрузка дня. Нажмите на ячейку, чтобы открыть журнал.</p>`;
+  return `<div class="gwrap"><div class="grid" id="grid"><div class="grow ghead"><div class="gname"></div>${head}</div>${rows}</div></div>
+    ${canManage() ? `<button class="btn ${edit ? '' : 'pri'} wide" data-act="sEdit" style="margin-top:12px;font-size:16px;padding:13px">${edit ? 'Готово' : 'Редактировать график'}</button>${edit ? '<p class="muted" style="font-size:13px;margin:8px 4px 0;text-align:center">Нажмите на клетку, чтобы задать смену или выходной</p>' : ''}` : ''}
+    ${monthStrip()}<div style="height:90px"></div>`;
+}
+function monthStrip() {
+  const t = new Date(); let h = '';
+  for (let i = -1; i < 5; i++) {
+    const d = new Date(t.getFullYear(), t.getMonth() + i, 1), ym = iso(d).slice(0, 7);
+    h += `<button data-month="${ym}" class="${ym === UI.sm ? 'sel' : ''}"><b style="font-size:16px">${MONTHS[d.getMonth()]}</b>${ym === UI.sm ? `<small style="font-size:11px">${d.getFullYear()}</small>` : ''}</button>`;
+  }
+  return `<div class="week mstrip">${h}</div>`;
+}
+function shiftForm(mid, day) {
+  const m = D.members[mid], sh = shiftOf(mid, day), st = A.studio, dt = parseISO(day);
+  const opts = v => { let o = ''; for (let x = 0; x <= 1440; x += 30) o += `<option value="${x}" ${x === v ? 'selected' : ''}>${hm(x % 1440 === 0 && x ? 1440 : x).replace('24:00', '24:00')}</option>`; return o; };
+  const wd = ['воскресенье', 'понедельник', 'вторник', 'среду', 'четверг', 'пятницу', 'субботу'][dt.getDay()];
+  openModal(`<h3>${esc(m.name)}</h3><p class="muted" style="margin:-8px 0 14px">${dt.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+    <div class="two"><div class="f"><label>Начало</label><select id="shS">${opts(sh ? sh.start_min : st.work_start * 60 + 60)}</select></div>
+    <div class="f"><label>Конец</label><select id="shE">${opts(sh ? sh.end_min : Math.min(st.work_end * 60, 18 * 60))}</select></div></div>
+    <div class="f"><label>Применить</label><select id="shR"><option value="one">Только этот день</option><option value="wd">Каждую ${wd} до конца месяца</option><option value="work">Все будни до конца месяца</option><option value="all">Все дни до конца месяца</option></select></div>
+    <div class="actions"><button class="btn danger" id="shOff">Выходной</button><span class="sp"></span><button class="btn ghost" data-close>Отмена</button><button class="btn pri" id="shOk">Сохранить</button></div>`);
+  const targets = () => {
+    const r = $('shR').value, ym = day.slice(0, 7), [y, mo] = ym.split('-').map(Number), n = new Date(y, mo, 0).getDate(), out = [];
+    for (let i = dt.getDate(); i <= n; i++) {
+      const d = ym + '-' + pad(i), w = parseISO(d).getDay();
+      if (r === 'one' && d !== day) continue;
+      if (r === 'wd' && w !== dt.getDay()) continue;
+      if (r === 'work' && (w === 0 || w === 6)) continue;
+      out.push(d);
+    }
+    return out;
+  };
+  $('shOk').onclick = async () => {
+    const s0 = +$('shS').value, s1 = +$('shE').value;
+    if (s1 <= s0) { toast('Конец смены должен быть позже начала'); return; }
+    const rows = targets().map(d => ({ studio_id: st.id, member_id: mid, day: d, start_min: s0, end_min: s1 }));
+    const r = await run(sb.from('shifts').upsert(rows, { onConflict: 'member_id,day' }).select());
+    r.forEach(x => { Object.values(D.shifts).filter(o => o.member_id === x.member_id && o.day === x.day).forEach(o => delete D.shifts[o.id]); D.shifts[x.id] = x; });
+    closeModal(); render(); toast(rows.length > 1 ? `Смены сохранены: ${rows.length} дн.` : 'Смена сохранена');
+  };
+  $('shOff').onclick = async () => {
+    const ds = targets();
+    await run(sb.from('shifts').delete().eq('member_id', mid).in('day', ds));
+    Object.values(D.shifts).filter(o => o.member_id === mid && ds.includes(o.day)).forEach(o => delete D.shifts[o.id]);
+    closeModal(); render(); toast(ds.length > 1 ? `Выходные: ${ds.length} дн.` : 'Выходной');
+  };
 }
 
 /* ================= УВЕДОМЛЕНИЯ ================= */
@@ -808,19 +896,22 @@ function installSheet(tab) {
 
 /* ================= ЕЩЁ ================= */
 function vMore() {
+  const own = A.role === 'owner' || isSuper();
   const it = [];
-  it.push(['services', 'Услуги', canManage() ? 'Прайс, длительность, категории' : 'Список услуг и цены']);
-  if (A.role === 'owner' || isSuper()) {
-    it.push(['team', 'Команда', `Сотрудники и доступы · ${arr('members').length} из ${A.studio.max_members}`]);
-    it.push(['report', 'Отчёт', 'Выручка, визиты, загрузка']);
-    it.push(['settings', 'Настройки студии', 'Название, контакты, рабочие часы']);
-  }
-  it.push(['profile', 'Профиль', esc(A.user.email)]);
-  const sub = subBadge(A.studio);
-  return pushCard('pushMore') + `<div class="card" style="margin-bottom:12px"><b>${esc(A.studio.name)}</b><div class="muted" style="font-size:13px;margin-top:4px">Ваша роль: ${A.me ? ROLES[A.me.role] : 'Администратор MariluStudio'} · ${sub}</div></div>
-    <div class="list">${it.map(([k, t, s]) => `<div class="li" data-act="go" data-v="${k}"><div class="main"><b>${t}</b><small>${s}</small></div><span class="muted">›</span></div>`).join('')}</div>
-    ${isStandalone() ? '' : '<button class="btn wide" data-act="install" style="margin-top:12px">📲 Установить приложение на телефон</button>'}
-    <div class="actions" style="margin-top:14px">${isSuper() ? '<button class="btn" data-act="admin">Админ-панель</button>' : ''}${A.memberships.length > 1 ? '<button class="btn" data-act="pick">Сменить студию</button>' : ''}<span class="sp"></span><button class="btn danger" data-act="logout">Выйти</button></div>`;
+  if (own) it.push(['team', 'user', 'Сотрудники']);
+  it.push(['services', 'bell2', 'Услуги']);
+  if (own) it.push(['report', 'chart', 'Аналитика']);
+  if (own) it.push(['settings', 'gear', 'Настройки']);
+  const name = A.profile?.full_name || A.me?.name || A.user.email;
+  return `<div class="mlist">
+      <div class="mrow big" data-act="go" data-v="profile"><span class="mav">${ic('user', 1.6)}</span><span class="mt">${esc(name)}</span><span class="chev">›</span></div>
+      <div class="mrow big" ${own ? 'data-act="go" data-v="settings"' : ''}><span class="mlogo">${esc(initials(A.studio.name))}</span><span class="mt"><small>Филиал · ${subBadge(A.studio)}</small>${esc(A.studio.name)}</span>${own ? '<span class="chev">›</span>' : ''}</div>
+    </div>
+    <div class="mlist">${it.map(([k, icn, t]) => `<div class="mrow" data-act="go" data-v="${k}"><span class="mi">${ic(icn, 1.6)}</span><span class="mt">${t}</span><span class="chev">›</span></div>`).join('')}</div>
+    ${pushCard('pushMore')}
+    ${isStandalone() ? '' : '<button class="btn wide" data-act="install" style="margin-bottom:12px">📲 Установить приложение на телефон</button>'}
+    <div class="actions">${isSuper() ? '<button class="btn" data-act="admin">Админ-панель</button>' : ''}${A.memberships.length > 1 ? '<button class="btn" data-act="pick">Сменить студию</button>' : ''}<span class="sp"></span><button class="btn danger" data-act="logout">Выйти</button></div>
+    <p class="muted" style="font-size:12px;text-align:center;margin-top:14px">Ваша роль: ${A.me ? ROLES[A.me.role] : 'Администратор MariluStudio'}</p>`;
 }
 const backBtn = () => `<button class="back" data-act="go" data-v="more">‹ Ещё</button>`;
 
@@ -863,13 +954,64 @@ function vSettings() {
 }
 
 /* ================= КЛИЕНТЫ ================= */
+const fmtPhone = p => { const d = String(p || '').replace(/\D/g, ''); if (d.length === 11 && /^[78]/.test(d)) return `+7 ${d.slice(1, 4)} ${d.slice(4, 7)}-${d.slice(7, 9)}-${d.slice(9)}`; return p || ''; };
 function vClients() {
   const q = UI.q.trim().toLowerCase(), qd = q.replace(/\D/g, '');
   const l = arr('clients').filter(c => !q || c.name.toLowerCase().includes(q) || (qd.length > 1 && (c.phone || '').replace(/\D/g, '').includes(qd))).sort((a, b) => a.name.localeCompare(b.name));
-  let h = `<input class="search" id="search" placeholder="Поиск по имени или телефону" value="${esc(UI.q)}">`;
+  let h = `<input class="search" id="search" placeholder="🔍  Поиск" value="${esc(UI.q)}">`;
   if (!arr('clients').length) return h + `<div class="card empty"><b>Клиентов пока нет</b>${canBook() ? 'Они появляются автоматически при записи или вручную кнопкой «+».' : isMaster() ? 'Здесь будут клиенты, записанные к вам.' : ''}</div>`;
   if (!l.length) return h + `<div class="card empty">Никого не найдено</div>`;
-  return h + `<p class="muted" style="margin:0 4px 8px;font-size:13px">Всего: ${arr('clients').length}</p><div class="list">${l.slice(0, 300).map(c => `<div class="li" data-open="clients:${c.id}">${avatar({ name: c.name, color: COLORS[c.name.length % COLORS.length] }, 40)}<div class="main"><b>${esc(c.name)}</b><small>${esc(c.phone || 'без телефона')}</small></div><span class="muted">›</span></div>`).join('')}</div>${l.length > 300 ? '<p class="muted" style="text-align:center">Показаны первые 300 — уточните поиск</p>' : ''}`;
+  return h + `<div class="clist">${l.slice(0, 500).map(c => `<div class="crow" data-open="clients:${c.id}"><div class="main"><b>${esc(c.name)}</b>${c.phone ? `<small><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8">${I.phone}</svg>${esc(fmtPhone(c.phone))}</small>` : ''}</div><button class="kebab" data-cmenu="${c.id}" aria-label="Действия">${ic('dots', 2.4)}</button></div>`).join('')}</div>${l.length > 500 ? '<p class="muted" style="text-align:center">Показаны первые 500 — уточните поиск</p>' : ''}<p class="muted" style="text-align:center;font-size:13px">Всего клиентов: ${arr('clients').length}</p>`;
+}
+const sheetItem = (icon, text, attrs, color) => `<${attrs.startsWith('href') ? 'a' : 'button'} class="sitem" ${attrs} ${color ? `style="color:${color}"` : ''}>${icon ? `<span class="si">${ic(icon, 1.7)}</span>` : ''}<span>${text}</span><span class="sp"></span>${attrs.startsWith('href') ? '' : '<span class="chev">›</span>'}</${attrs.startsWith('href') ? 'a' : 'button'}>`;
+function clientMenu(c) {
+  if (!c) return;
+  const d = String(c.phone || '').replace(/\D/g, ''), intl = d.length === 11 && d[0] === '8' ? '7' + d.slice(1) : d;
+  openModal(`<div class="shead"><button class="ficon" data-close aria-label="Закрыть" style="font-size:22px">✕</button><b>${esc(c.name)}</b></div>
+    <div class="sgroup">${sheetItem('clock2', 'История посещений', 'id="cmH"')}</div>
+    ${d ? `<div class="sgroup">${sheetItem('phone', 'Позвонить', `href="tel:+${intl}"`)}${sheetItem('msg', 'Написать', 'id="cmW"')}</div>` : ''}
+    ${canManage() ? `<div class="sgroup">${sheetItem('', 'Удалить клиента', 'id="cmD"', '#e2483c')}</div>` : ''}`);
+  $('cmH').onclick = () => clientCard(c);
+  const w = $('cmW'); if (w) w.onclick = () => openModal(`<div class="shead"><button class="ficon" data-close style="font-size:22px">✕</button><b>Написать: ${esc(c.name)}</b></div>
+    <div class="sgroup">${sheetItem('msg', 'SMS', `href="sms:+${intl}"`)}${sheetItem('msg', 'WhatsApp', `href="https://wa.me/${intl}" target="_blank" rel="noopener"`)}${sheetItem('msg', 'Telegram', `href="https://t.me/+${intl}" target="_blank" rel="noopener"`)}</div>`);
+  const del = $('cmD'); if (del) del.onclick = () => openModal(`<h3>Удалить клиента?</h3><p class="muted">${esc(c.name)} будет удалён(а) из базы. Его записи останутся в журнале без имени. Отменить нельзя.</p>
+    <div class="actions"><span class="sp"></span><button class="btn ghost" data-close>Отмена</button><button class="btn danger" id="cmDy">Удалить</button></div>`) || ($('cmDy').onclick = async () => { await run(sb.from('clients').delete().eq('id', c.id)); delete D.clients[c.id]; closeModal(); render(); toast('Клиент удалён'); });
+}
+function clientsMenu() {
+  openModal(`<div class="sgroup">${sheetItem('book', 'Сохранить в телефонную книгу', 'id="cxSave"')}${canBook() ? sheetItem('user', 'Добавить из телефонной книги', 'id="cxAdd"') : ''}</div>`);
+  $('cxSave').onclick = () => {
+    const vcf = arr('clients').filter(c => c.phone).map(c => `BEGIN:VCARD\r\nVERSION:3.0\r\nFN:${c.name.replace(/[,;\\]/g, ' ')}\r\nN:;${c.name.replace(/[,;\\]/g, ' ')};;;\r\nTEL;TYPE=CELL:${c.phone}\r\nNOTE:MariluStudio\r\nEND:VCARD`).join('\r\n');
+    if (!vcf) { toast('Нет клиентов с телефоном'); return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([vcf], { type: 'text/vcard' })); a.download = 'clients-marilustudio.vcf';
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    closeModal(); toast('Файл контактов скачан — откройте его, чтобы добавить в телефонную книгу');
+  };
+  const add = $('cxAdd'); if (add) add.onclick = async () => {
+    let list = [];
+    if ('contacts' in navigator && 'select' in navigator.contacts) {
+      try { const r = await navigator.contacts.select(['name', 'tel'], { multiple: true }); list = r.map(x => ({ name: (x.name || [])[0] || '', phone: (x.tel || [])[0] || '' })); }
+      catch (e) { return; }
+      importContacts(list);
+    } else {
+      openModal(`<h3>Добавить из телефонной книги</h3><p class="muted" style="font-size:14px">На этом устройстве браузер не даёт доступ к контактам напрямую. Выгрузите контакты файлом <b>.vcf</b> (на iPhone: Контакты → выбрать → Поделиться) и выберите его здесь.</p>
+        <label class="btn pri wide" style="display:block;text-align:center">Выбрать файл .vcf<input type="file" accept=".vcf,text/vcard,text/x-vcard" id="vcfIn" hidden></label>
+        <div class="actions"><span class="sp"></span><button class="btn ghost" data-close>Отмена</button></div>`);
+      $('vcfIn').onchange = async e => {
+        const f = e.target.files[0]; if (!f) return;
+        const txt = await f.text();
+        const cards = txt.split(/END:VCARD/i);
+        cards.forEach(cd => { const fn = (cd.match(/^FN[^:]*:(.*)$/im) || [])[1], tel = (cd.match(/^TEL[^:]*:(.*)$/im) || [])[1]; if (tel) list.push({ name: (fn || '').trim(), phone: tel.trim() }); });
+        importContacts(list);
+      };
+    }
+  };
+}
+async function importContacts(list) {
+  const have = new Set(arr('clients').map(c => String(c.phone || '').replace(/\D/g, '').slice(-10)).filter(Boolean));
+  const rows = []; list.forEach(x => { const k = String(x.phone).replace(/\D/g, '').slice(-10); if (k.length < 10 || have.has(k)) return; have.add(k); rows.push({ studio_id: A.studio.id, name: x.name || x.phone, phone: x.phone }); });
+  if (!rows.length) { closeModal(); toast('Новых контактов нет — все уже в базе'); return; }
+  for (let i = 0; i < rows.length; i += 200) { const r = await run(sb.from('clients').insert(rows.slice(i, i + 200)).select()); r.forEach(c => D.clients[c.id] = c); }
+  closeModal(); render(); toast(`Добавлено клиентов: ${rows.length}`);
 }
 async function clientCard(c) {
   openModal(`<h3>${esc(c.name)}</h3><div class="empty">Загрузка истории…</div>`);
