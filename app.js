@@ -374,6 +374,7 @@ const I = {
   chart: '<circle cx="12" cy="12" r="9"/><path d="M12 3v9l6.4 6.4"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7.1 19.8a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 1.2 14.6H1a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 2.2 7.9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H6.6A1.6 1.6 0 0 0 7.6 2.1V2a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5 1H19a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
   msg: '<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.2A8.4 8.4 0 1 1 21 11.5z"/>',
+  card: '<rect x="3" y="6" width="16" height="11" rx="2"/><path d="M7 6V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2"/><path d="M3 10h16"/>',
   clock2: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
   book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M8 7h8M8 11h6"/>',
@@ -961,21 +962,41 @@ function vClients() {
   let h = `<input class="search" id="search" placeholder="🔍  Поиск" value="${esc(UI.q)}">`;
   if (!arr('clients').length) return h + `<div class="card empty"><b>Клиентов пока нет</b>${canBook() ? 'Они появляются автоматически при записи или вручную кнопкой «+».' : isMaster() ? 'Здесь будут клиенты, записанные к вам.' : ''}</div>`;
   if (!l.length) return h + `<div class="card empty">Никого не найдено</div>`;
-  return h + `<div class="clist">${l.slice(0, 500).map(c => `<div class="crow" data-open="clients:${c.id}"><div class="main"><b>${esc(c.name)}</b>${c.phone ? `<small><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8">${I.phone}</svg>${esc(fmtPhone(c.phone))}</small>` : ''}</div><button class="kebab" data-cmenu="${c.id}" aria-label="Действия">${ic('dots', 2.4)}</button></div>`).join('')}</div>${l.length > 500 ? '<p class="muted" style="text-align:center">Показаны первые 500 — уточните поиск</p>' : ''}<p class="muted" style="text-align:center;font-size:13px">Всего клиентов: ${arr('clients').length}</p>`;
+  return h + `<div class="clist">${l.slice(0, 500).map(c => `<div class="crow" data-cmenu="${c.id}"><div class="main"><b>${esc(c.name)}</b>${c.phone ? `<small><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8">${I.phone}</svg>${esc(fmtPhone(c.phone))}</small>` : ''}</div><button class="kebab" data-cmenu="${c.id}" aria-label="Действия">${ic('dots', 2.4)}</button></div>`).join('')}</div>${l.length > 500 ? '<p class="muted" style="text-align:center">Показаны первые 500 — уточните поиск</p>' : ''}<p class="muted" style="text-align:center;font-size:13px">Всего клиентов: ${arr('clients').length}</p>`;
 }
 const sheetItem = (icon, text, attrs, color) => `<${attrs.startsWith('href') ? 'a' : 'button'} class="sitem" ${attrs} ${color ? `style="color:${color}"` : ''}>${icon ? `<span class="si">${ic(icon, 1.7)}</span>` : ''}<span>${text}</span><span class="sp"></span>${attrs.startsWith('href') ? '' : '<span class="chev">›</span>'}</${attrs.startsWith('href') ? 'a' : 'button'}>`;
 function clientMenu(c) {
   if (!c) return;
   const d = String(c.phone || '').replace(/\D/g, ''), intl = d.length === 11 && d[0] === '8' ? '7' + d.slice(1) : d;
   openModal(`<div class="shead"><button class="ficon" data-close aria-label="Закрыть" style="font-size:22px">✕</button><b>${esc(c.name)}</b></div>
-    <div class="sgroup">${sheetItem('clock2', 'История посещений', 'id="cmH"')}</div>
+    <div class="sgroup">${sheetItem('clock2', 'История посещений', 'id="cmH"')}${sheetItem('card', 'Лояльность', 'id="cmL"')}</div>
     ${d ? `<div class="sgroup">${sheetItem('phone', 'Позвонить', `href="tel:+${intl}"`)}${sheetItem('msg', 'Написать', 'id="cmW"')}</div>` : ''}
     ${canManage() ? `<div class="sgroup">${sheetItem('', 'Удалить клиента', 'id="cmD"', '#e2483c')}</div>` : ''}`);
   $('cmH').onclick = () => clientCard(c);
+  $('cmL').onclick = () => loyaltySheet(c);
   const w = $('cmW'); if (w) w.onclick = () => openModal(`<div class="shead"><button class="ficon" data-close style="font-size:22px">✕</button><b>Написать: ${esc(c.name)}</b></div>
     <div class="sgroup">${sheetItem('msg', 'SMS', `href="sms:+${intl}"`)}${sheetItem('msg', 'WhatsApp', `href="https://wa.me/${intl}" target="_blank" rel="noopener"`)}${sheetItem('msg', 'Telegram', `href="https://t.me/+${intl}" target="_blank" rel="noopener"`)}</div>`);
   const del = $('cmD'); if (del) del.onclick = () => openModal(`<h3>Удалить клиента?</h3><p class="muted">${esc(c.name)} будет удалён(а) из базы. Его записи останутся в журнале без имени. Отменить нельзя.</p>
     <div class="actions"><span class="sp"></span><button class="btn ghost" data-close>Отмена</button><button class="btn danger" id="cmDy">Удалить</button></div>`) || ($('cmDy').onclick = async () => { await run(sb.from('clients').delete().eq('id', c.id)); delete D.clients[c.id]; closeModal(); render(); toast('Клиент удалён'); });
+}
+async function loyaltySheet(c) {
+  openModal(`<div class="shead"><button class="ficon" data-close style="font-size:22px">✕</button><b>Лояльность: ${esc(c.name)}</b></div><div class="empty">Загрузка…</div>`);
+  const { data } = await sb.from('appointments').select('day,status,price').eq('client_id', c.id).order('day', { ascending: false }).limit(1000);
+  if (!document.querySelector('#modal .ov')) return;
+  const l = data || [], done = l.filter(a => a.status === 'done'), sum = done.reduce((t, a) => t + (+a.price || 0), 0);
+  const showMoney = isSuper() || A.role === 'owner';
+  const lvl = done.length >= 10 ? ['🥇 Постоянный клиент', '#e8a800'] : done.length >= 3 ? ['🥈 Возвращается', '#7c8696'] : done.length ? ['🥉 Новый клиент', '#b87333'] : ['Ещё не было визитов', '#8a8f98'];
+  const next = l.filter(a => a.day >= today() && !['cancelled', 'noshow', 'done'].includes(a.status)).pop();
+  openModal(`<div class="shead"><button class="ficon" data-close style="font-size:22px">✕</button><b>Лояльность: ${esc(c.name)}</b></div>
+    <div class="card" style="margin-bottom:12px;text-align:center"><b style="font-size:18px;color:${lvl[1]}">${lvl[0]}</b></div>
+    <div class="stats" style="grid-template-columns:repeat(2,1fr)">
+      <div class="stat"><small>Визитов</small><b>${done.length}</b></div>
+      <div class="stat"><small>Не пришёл</small><b style="color:#d4291a">${l.filter(a => a.status === 'noshow').length}</b></div>
+      ${showMoney ? `<div class="stat"><small>Потратил всего</small><b>${money(sum)}</b></div><div class="stat"><small>Средний чек</small><b>${money(done.length ? sum / done.length : 0)}</b></div>` : ''}
+      <div class="stat"><small>Последний визит</small><b style="font-size:17px">${done[0] ? fmtShort(done[0].day) : '—'}</b></div>
+      <div class="stat"><small>Следующая запись</small><b style="font-size:17px">${next ? fmtShort(next.day) : '—'}</b></div>
+    </div>
+    <div class="actions"><span class="sp"></span><button class="btn ghost" data-close>Закрыть</button></div>`);
 }
 function clientsMenu() {
   openModal(`<div class="sgroup">${sheetItem('book', 'Сохранить в телефонную книгу', 'id="cxSave"')}${canBook() ? sheetItem('user', 'Добавить из телефонной книги', 'id="cxAdd"') : ''}</div>`);
